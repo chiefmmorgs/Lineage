@@ -116,8 +116,8 @@ function computeAgentTrust(avgScore: number, feedbackCount: number): number {
   return clamp(erc8004 * 0.60 + reliability * 0.25 + confidence * 0.15, 0, 100);
 }
 
-function computeLinkTrust(activeCount: number, mutualCount: number, revokedCount: number, avgAgeSeconds: number): number {
-  const sharedSuccess = activeCount > 0 ? clamp((mutualCount / activeCount) * 100, 0, 100) : 0;
+function computeLinkTrust(activeCount: number, effectiveMutualCount: number, revokedCount: number, avgAgeSeconds: number): number {
+  const sharedSuccess = activeCount > 0 ? clamp((effectiveMutualCount / activeCount) * 100, 0, 100) : 0;
   const compliance = activeCount > 0 ? clamp(((activeCount - revokedCount) / activeCount) * 100, 0, 100) : 0;
   const dispute = 100;
   const age = clamp(Math.min(avgAgeSeconds / (90 * 86400), 1) * 100, 0, 100);
@@ -133,6 +133,41 @@ function computeConfidence(feedbackCount: number, linkCount: number, hasEthos: b
   c += Math.min(linkCount / 5, 1) * 0.20;
   c += 0.10;
   return clamp(c, 0, 1);
+}
+
+/**
+ * Progressive Verification — Effective Level
+ *
+ * On-chain, a same-wallet link gets Level 3 (mutual-verification) automatically.
+ * But Lineage requires both sides to show credibility.
+ *
+ * Effective Level 1: Ownership proven only (ERC-8004 wallet, no Ethos, no ENS)
+ * Effective Level 2: + Ethos profile exists (any score)
+ * Effective Level 3: + ENS verified OR Ethos score ≥ 500
+ */
+type EffectiveLevel = 1 | 2 | 3;
+
+export function computeEffectiveLevel(
+  onChainLevel: string,
+  hasEthosProfile: boolean,
+  ethosScore: number,
+  hasVerifiedENS: boolean,
+): { level: EffectiveLevel; label: string; reason: string } {
+  // If on-chain isn't mutual-verification, return L1 (self-claim or agent-confirmation)
+  if (onChainLevel !== "mutual-verification") {
+    return { level: 1, label: "Self Claim", reason: "On-chain level is not mutual verification" };
+  }
+
+  // Progressive: check human side credibility
+  if (hasVerifiedENS || ethosScore >= 500) {
+    return { level: 3, label: "Full Mutual Verification", reason: "ERC-8004 + Ethos/ENS verified" };
+  }
+
+  if (hasEthosProfile) {
+    return { level: 2, label: "Partial Verification", reason: "ERC-8004 + Ethos profile (upgrade with ENS or Ethos ≥ 500)" };
+  }
+
+  return { level: 1, label: "Ownership Only", reason: "ERC-8004 wallet owner, no Ethos or ENS (upgrade by connecting Ethos)" };
 }
 
 function gradeFromScore(score: number): { grade: string; label: string; color: string } {
@@ -169,7 +204,7 @@ export async function recomputeAgentScore(tokenId: number, chainId: number, reas
     .where(eq(links.agentTokenId, tokenId))
     .all();
   const activeLinks = agentLinks.filter(l => l.status === "active");
-  const mutualLinks = activeLinks.filter(l => l.level === "mutual-verification");
+  const onChainMutualLinks = activeLinks.filter(l => l.level === "mutual-verification");
   const revokedLinks = agentLinks.filter(l => l.status === "revoked");
   const avgLinkAge = activeLinks.length > 0
     ? activeLinks.reduce((sum, l) => sum + (ts - l.createdAt), 0) / activeLinks.length
@@ -221,9 +256,22 @@ export async function recomputeAgentScore(tokenId: number, chainId: number, reas
     }
   }
 
-  // 5. Compute component scores
+  // 5. Compute effective verification levels (progressive verification)
+  //    On-chain Level 3 is downgraded if human lacks Ethos/ENS
+  const bestEthosScore = hasEthos ? humanTrust : 0; // Use human trust as proxy
+  const hasVerifiedENS = ensScore !== null && ensScore.total > 0;
+  let effectiveMutualCount = 0;
+  const effectiveLevels: { linkId: number; onChain: string; effective: ReturnType<typeof computeEffectiveLevel> }[] = [];
+
+  for (const link of activeLinks) {
+    const eff = computeEffectiveLevel(link.level, hasEthos, bestEthosScore, hasVerifiedENS);
+    effectiveLevels.push({ linkId: link.linkId, onChain: link.level, effective: eff });
+    if (eff.level === 3) effectiveMutualCount++;
+  }
+
+  // Compute component scores — use EFFECTIVE mutual count, not raw on-chain
   const agentTrust = computeAgentTrust(avgScore, totalFeedbackCount);
-  const linkTrust = computeLinkTrust(activeLinks.length, mutualLinks.length, revokedLinks.length, avgLinkAge);
+  const linkTrust = computeLinkTrust(activeLinks.length, effectiveMutualCount, revokedLinks.length, avgLinkAge);
   const confidence = computeConfidence(totalFeedbackCount, activeLinks.length, hasEthos);
 
   // 6. Final weighted score
@@ -258,7 +306,12 @@ export async function recomputeAgentScore(tokenId: number, chainId: number, reas
       platformFeedbackCount: platformFeedback.length,
       avgFeedbackScore: Math.round(avgScore * 100) / 100,
       linkCount: activeLinks.length,
-      mutualLinks: mutualLinks.length,
+      onChainMutualLinks: onChainMutualLinks.length,
+      effectiveMutualLinks: effectiveMutualCount,
+      progressiveVerification: effectiveLevels.length > 0
+        ? effectiveLevels.map(e => ({ linkId: e.linkId, onChain: e.onChain, effectiveLevel: e.effective.level, reason: e.effective.reason }))
+        : undefined,
+      mutualLinks: onChainMutualLinks.length,
       hasEthos,
       proofType: bestProofType,
       color,

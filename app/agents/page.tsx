@@ -1,22 +1,57 @@
-import Link from "next/link";
-import { AGENT_REGISTRY_ADDRESS } from "@/lib/contracts";
-import { fetchAgents, type ScanAgent } from "@/lib/scan";
+"use client";
 
-export const revalidate = 30;
+import Link from "next/link";
+import { useEffect, useState, useMemo } from "react";
+
+// ── Types ────────────────────────────────────────────────────────
+interface ScanAgent {
+  id: string;
+  agent_id: string;
+  token_id: string;
+  chain_id: number;
+  is_testnet: boolean;
+  owner_address: string;
+  name: string;
+  description: string;
+  image_url: string;
+  is_verified: boolean;
+  star_count: number;
+  supported_protocols: string[];
+  x402_supported: boolean;
+  total_score: number;
+  total_feedbacks: number;
+  average_score: number;
+  created_at: string;
+}
 
 // ── Chain display helpers ────────────────────────────────────────
-const CHAIN_META: Record<number, { name: string; color: string }> = {
-  84532: { name: "Base Sepolia", color: "#3886f7" },
-  11155111: { name: "Eth Sepolia", color: "#627eea" },
-  8453: { name: "Base", color: "#3886f7" },
-  1: { name: "Ethereum", color: "#627eea" },
-  56: { name: "BNB Chain", color: "#f3ba2f" },
-  42161: { name: "Arbitrum", color: "#28a0f0" },
-  42220: { name: "Celo", color: "#35d07f" },
+const CHAIN_META: Record<number, { name: string; color: string; testnet: boolean }> = {
+  // Mainnets
+  1:        { name: "Ethereum",         color: "#627eea", testnet: false },
+  8453:     { name: "Base",             color: "#3886f7", testnet: false },
+  56:       { name: "BNB Chain",        color: "#f3ba2f", testnet: false },
+  42161:    { name: "Arbitrum",         color: "#28a0f0", testnet: false },
+  43114:    { name: "Avalanche",        color: "#e84142", testnet: false },
+  42220:    { name: "Celo",             color: "#35d07f", testnet: false },
+  2741:     { name: "Abstract",         color: "#7c3aed", testnet: false },
+  10:       { name: "Optimism",         color: "#ff0420", testnet: false },
+  137:      { name: "Polygon",          color: "#8247e5", testnet: false },
+  100:      { name: "Gnosis",           color: "#04795b", testnet: false },
+  101:      { name: "Solana",           color: "#9945ff", testnet: false },
+  // Testnets
+  11155111: { name: "Eth Sepolia",     color: "#627eea", testnet: true },
+  84532:    { name: "Base Sepolia",     color: "#3886f7", testnet: true },
+  10143:    { name: "Monad Testnet",    color: "#6366f1", testnet: true },
+  103:      { name: "Solana Devnet",    color: "#9945ff", testnet: true },
+  421614:   { name: "Arbitrum Sepolia", color: "#28a0f0", testnet: true },
+  97:       { name: "BSC Testnet",      color: "#f3ba2f", testnet: true },
+  11124:    { name: "Abstract Testnet", color: "#7c3aed", testnet: true },
+  6343:     { name: "MegaETH Testnet",  color: "#14b8a6", testnet: true },
+  43113:    { name: "Avalanche Fuji",   color: "#e84142", testnet: true },
 };
 
 function chainMeta(id: number) {
-  return CHAIN_META[id] ?? { name: `Chain ${id}`, color: "#888" };
+  return CHAIN_META[id] ?? { name: `Chain ${id}`, color: "#888", testnet: false };
 }
 
 function shortAddr(addr: string) {
@@ -37,18 +72,48 @@ function timeAgo(dateStr: string): string {
 
 // ══════════════════════════════════════════════════════════════════
 
-export default async function AgentsPage() {
-  // Fetch agents from 8004scan — Base Sepolia (chain 84532)
-  let agents: ScanAgent[] = [];
-  let total = 0;
+type FilterMode = "all" | "mainnet" | "testnet" | number;
 
-  try {
-    const response = await fetchAgents({ limit: 100 });
-    agents = response.data;
-    total = agents.length;
-  } catch (e) {
-    console.error("Failed to fetch agents:", e);
-  }
+export default function AgentsPage() {
+  const [agents, setAgents] = useState<ScanAgent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<FilterMode>(84532);
+
+  useEffect(() => {
+    fetch("/api/agents-list?limit=100")
+      .then((r) => r.json())
+      .then((d) => {
+        setAgents(d.data || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  // Build the list of chains that actually have agents
+  const chainOptions = useMemo(() => {
+    const map = new Map<number, { name: string; color: string; count: number; testnet: boolean }>();
+    for (const a of agents) {
+      const meta = chainMeta(a.chain_id);
+      const existing = map.get(a.chain_id);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        map.set(a.chain_id, { name: meta.name, color: meta.color, count: 1, testnet: meta.testnet });
+      }
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1].count - a[1].count);
+  }, [agents]);
+
+  // Filter agents
+  const filtered = useMemo(() => {
+    if (filter === "all") return agents;
+    if (filter === "mainnet") return agents.filter((a) => !a.is_testnet && !chainMeta(a.chain_id).testnet);
+    if (filter === "testnet") return agents.filter((a) => a.is_testnet || chainMeta(a.chain_id).testnet);
+    return agents.filter((a) => a.chain_id === filter);
+  }, [agents, filter]);
+
+  const mainnetCount = agents.filter((a) => !a.is_testnet && !chainMeta(a.chain_id).testnet).length;
+  const testnetCount = agents.filter((a) => a.is_testnet || chainMeta(a.chain_id).testnet).length;
 
   return (
     <main>
@@ -61,7 +126,7 @@ export default async function AgentsPage() {
               <div>
                 <h1 className="section-title">Agent Directory</h1>
                 <p className="section-sub">
-                  {total} agent{total !== 1 ? "s" : ""} registered across all chains · Reading live from{" "}
+                  {agents.length} agent{agents.length !== 1 ? "s" : ""} registered across all chains · Reading live from{" "}
                   <a
                     href="https://8004scan.io"
                     target="_blank"
@@ -74,7 +139,7 @@ export default async function AgentsPage() {
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <span className="tag" style={{ color: "var(--green)", borderColor: "#22c55e44", background: "#22c55e11" }}>
-                  ● {total} registered
+                  ● {agents.length} registered
                 </span>
                 <span className="tag">
                   🔴 Live from chain
@@ -86,8 +151,56 @@ export default async function AgentsPage() {
             </div>
           </div>
 
+          {/* ── Chain Filters ─────────────────────────────────────── */}
+          <div style={{
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            marginBottom: 20,
+            alignItems: "center",
+          }}>
+            {/* All / Mainnet / Testnet */}
+            <FilterPill
+              label={`All Chains (${agents.length})`}
+              active={filter === "all"}
+              color="#888"
+              onClick={() => setFilter("all")}
+            />
+            <FilterPill
+              label={`Mainnet (${mainnetCount})`}
+              active={filter === "mainnet"}
+              color="#22c55e"
+              onClick={() => setFilter("mainnet")}
+            />
+            <FilterPill
+              label={`Testnet (${testnetCount})`}
+              active={filter === "testnet"}
+              color="#f59e0b"
+              onClick={() => setFilter("testnet")}
+            />
+
+            {/* Divider */}
+            <div style={{ width: 1, height: 24, background: "var(--border)", margin: "0 4px" }} />
+
+            {/* Per-chain filters */}
+            {chainOptions.map(([chainId, meta]) => (
+              <FilterPill
+                key={chainId}
+                label={`${meta.name} (${meta.count})`}
+                active={filter === chainId}
+                color={meta.color}
+                onClick={() => setFilter(filter === chainId ? "all" : chainId)}
+              />
+            ))}
+          </div>
+
           {/* Agent Table */}
-          {agents.length > 0 ? (
+          {loading ? (
+            <div className="card" style={{ padding: 48, textAlign: "center" }}>
+              <div style={{ fontSize: "2rem", marginBottom: 16 }}>⏳</div>
+              <p style={{ color: "var(--text-secondary)" }}>Loading agents from 8004scan.io…</p>
+            </div>
+          ) : filtered.length > 0 ? (
             <div style={{
               background: "var(--bg-card)", border: "1px solid var(--border)",
               borderRadius: 16, overflow: "hidden",
@@ -116,7 +229,7 @@ export default async function AgentsPage() {
 
               {/* Table body */}
               <div style={{ overflowX: "auto" }}>
-                {agents.map((agent) => {
+                {filtered.map((agent) => {
                   const chain = chainMeta(agent.chain_id);
                   const protocols = agent.supported_protocols || [];
                   const hasCustom = protocols.length === 0;
@@ -254,19 +367,65 @@ export default async function AgentsPage() {
             <div className="card" style={{ padding: 48, textAlign: "center" }}>
               <div style={{ fontSize: "2rem", marginBottom: 16 }}>🤖</div>
               <h2 style={{ fontFamily: "var(--font-head)", fontSize: "1.25rem", marginBottom: 10 }}>
-                No agents registered yet
+                {agents.length > 0 ? "No agents on this chain" : "No agents registered yet"}
               </h2>
               <p style={{ color: "var(--text-secondary)", marginBottom: 24 }}>
-                Be the first to register an ERC-8004 agent identity.
+                {agents.length > 0
+                  ? "Try selecting a different chain or view all."
+                  : "Be the first to register an ERC-8004 agent identity."}
               </p>
-              <Link href="/agents/register" className="btn btn-primary">
-                Register your agent →
-              </Link>
+              {agents.length > 0 ? (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setFilter("all")}
+                >
+                  View all chains →
+                </button>
+              ) : (
+                <Link href="/agents/register" className="btn btn-primary">
+                  Register your agent →
+                </Link>
+              )}
             </div>
           )}
 
         </div>
       </section>
     </main>
+  );
+}
+
+// ── Filter Pill Component ────────────────────────────────────────
+
+function FilterPill({
+  label,
+  active,
+  color,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  color: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        fontSize: "0.6875rem",
+        fontWeight: 600,
+        padding: "5px 14px",
+        borderRadius: 20,
+        border: `1px solid ${active ? color : "var(--border)"}`,
+        background: active ? `${color}22` : "transparent",
+        color: active ? color : "var(--text-muted)",
+        cursor: "pointer",
+        transition: "all 0.2s",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {active && <span style={{ marginRight: 4 }}>●</span>}
+      {label}
+    </button>
   );
 }

@@ -17,7 +17,7 @@
  * ============================================================
  */
 
-const API_BASE = "https://8004scan.io/api/v1/public";
+const API_BASE = "https://www.8004scan.io/api/v1/public";
 
 // ── Types from the API ──────────────────────────────────────────
 

@@ -177,7 +177,13 @@ export default function LinkAgentPage() {
   const isRenter = selectedRole === 4;
   const agentWallet = agentWalletInput || addr; // defaults to own wallet
   const isSameWallet = agentWallet.toLowerCase() === addr.toLowerCase();
-  const verificationLevel = isSameWallet ? "Level 3 (Mutual)" : "Level 1 (Self Claim)";
+  // Progressive verification: same wallet still creates on-chain L3,
+  // but Lineage's effective level depends on Ethos/ENS
+  const hasEthosProfile = !!profileId;
+  const effectiveLevel = isSameWallet
+    ? (hasEthosProfile ? "Level 2 (Partial)" : "Level 1 (Ownership Only)")
+    : "Level 1 (Self Claim)";
+  const verificationLevel = effectiveLevel;
 
   const canSubmit = authenticated && profileId && agentTokenId && txState !== "signing" && txState !== "pending";
 
@@ -514,8 +520,19 @@ export default function LinkAgentPage() {
 
                 {/* Verification level indicator */}
                 {authenticated && isSameWallet && (
-                  <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: "var(--radius-sm)", background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)", fontSize: "0.8125rem", color: "var(--green)" }}>
-                    ✓ Your wallet holds this agent — this will be a <strong>Level 3 Mutual Verification</strong> in a single signature.
+                  <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ padding: "10px 14px", borderRadius: "var(--radius-sm)", background: "rgba(56,134,247,0.08)", border: "1px solid rgba(56,134,247,0.2)", fontSize: "0.8125rem", color: "#3886f7" }}>
+                      ✓ Wallet holds this agent — ownership verified.
+                    </div>
+                    {!hasEthosProfile ? (
+                      <div style={{ padding: "10px 14px", borderRadius: "var(--radius-sm)", background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.15)", fontSize: "0.75rem", color: "#f59e0b" }}>
+                        <strong>Effective Level 1</strong> — Ownership only. Connect an Ethos profile to upgrade to Level 2. Verify ENS to reach Level 3.
+                      </div>
+                    ) : (
+                      <div style={{ padding: "10px 14px", borderRadius: "var(--radius-sm)", background: "rgba(34,197,94,0.06)", border: "1px solid rgba(34,197,94,0.15)", fontSize: "0.75rem", color: "var(--green)" }}>
+                        <strong>Effective Level 2</strong> — Ethos connected. Verify ENS or reach Ethos score ≥ 500 to unlock Level 3.
+                      </div>
+                    )}
                   </div>
                 )}
                 {authenticated && agentWalletInput && !isSameWallet && (
@@ -942,12 +959,14 @@ export default function LinkAgentPage() {
               {txState === "success" && txHash && (
                 <SuccessBox>
                   <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, color: "var(--green)", marginBottom: 6 }}>
-                    {isSameWallet ? "✓ Mutually verified link created!" : "✓ Self Claim submitted!"}
+                    {isSameWallet ? "✓ Link created!" : "✓ Self Claim submitted!"}
                   </div>
                   <div style={{ fontSize: "0.8125rem", color: "var(--text-secondary)", marginBottom: 8 }}>
                     {isSameWallet
-                      ? "Your agent is now linked to your Ethos profile with Level 3 Mutual Verification."
-                      : "The agent owner can now sign to upgrade this to Level 3 Mutual Verification."}
+                      ? hasEthosProfile
+                        ? "Your agent is linked at Effective Level 2. Verify ENS or reach Ethos ≥ 500 to unlock Level 3."
+                        : "Your agent is linked at Effective Level 1. Connect Ethos to upgrade to Level 2, then verify ENS for Level 3."
+                      : "The agent owner can now sign to upgrade this link."}
                   </div>
                   <a href={`https://sepolia.basescan.org/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
                     style={{ fontSize: "0.8125rem", color: "var(--accent)", fontWeight: 500, wordBreak: "break-all" }}>
