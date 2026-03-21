@@ -1,0 +1,46 @@
+{
+  "name": "lineage",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@headlessui/react": "^2.2.9",
+    "@heroicons/react": "^2.2.0",
+    "@privy-io/react-auth": "^3.17.0",
+    "@scure/base": "^2.0.0",
+    "better-sqlite3": "^12.8.0",
+    "drizzle-orm": "^0.45.1",
+    "eventemitter3": "^5.0.4",
+    "jose": "^6.2.1",
+    "js-cookie": "^3.0.5",
+    "lucide-react": "^0.577.0",
+    "mipd": "^0.0.7",
+    "next": "16.1.6",
+    "ofetch": "^1.5.1",
+    "p-queue": "^6.6.2",
+    "react": "19.2.3",
+    "react-device-detect": "^2.2.3",
+    "react-dom": "19.2.3",
+    "styled-components": "^6.3.11",
+    "tinycolor2": "^1.6.0",
+    "uuid": "^13.0.0",
+    "viem": "^2.47.1",
+    "zustand": "^5.0.11"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "babel-plugin-react-compiler": "1.0.0",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "typescript": "^5"
+  }
+}

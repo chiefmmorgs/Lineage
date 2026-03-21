@@ -1,0 +1,38 @@
+{
+  "name": "@lineage/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Lineage Trust Engine — unified trust scoring for agents and humans",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "lineage",
+    "trust",
+    "reputation",
+    "erc-8004",
+    "ethos",
+    "ens",
+    "agent",
+    "sdk"
+  ],
+  "author": "Lineage",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
