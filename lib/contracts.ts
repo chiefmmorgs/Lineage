@@ -280,7 +280,8 @@ async function parseAgentURI(uri: string): Promise<{ name: string; description: 
 /** Read a single agent's on-chain identity by tokenId */
 export async function readAgent(tokenId: number): Promise<OnChainAgent | null> {
   try {
-    const [owner, uri, agentWallet] = await Promise.all([
+    // Fetch owner and URI first (these should always exist for a valid token)
+    const [owner, uri] = await Promise.all([
       client.readContract({
         address: AGENT_REGISTRY_ADDRESS,
         abi: AGENT_REGISTRY_ABI,
@@ -293,13 +294,21 @@ export async function readAgent(tokenId: number): Promise<OnChainAgent | null> {
         functionName: "agentURI",
         args: [BigInt(tokenId)],
       }),
-      client.readContract({
+    ]);
+
+    // getAgentWallet may revert if no wallet is set — handle gracefully
+    let agentWallet: string = "";
+    try {
+      agentWallet = (await client.readContract({
         address: AGENT_REGISTRY_ADDRESS,
         abi: AGENT_REGISTRY_ABI,
         functionName: "getAgentWallet",
         args: [BigInt(tokenId)],
-      }),
-    ]);
+      })) as string;
+    } catch {
+      // No wallet set — use owner address as fallback
+      agentWallet = owner as string;
+    }
 
     const agentURI = uri as string;
     const meta = await parseAgentURI(agentURI);
@@ -308,13 +317,35 @@ export async function readAgent(tokenId: number): Promise<OnChainAgent | null> {
       tokenId,
       owner: owner as string,
       agentURI,
-      agentWallet: agentWallet as string,
+      agentWallet,
       name: meta.name,
       description: meta.description,
       image: meta.image,
     };
   } catch {
-    return null;
+    // On-chain read failed — try 8004scan API as fallback
+    try {
+      const res = await fetch(
+        `https://www.8004scan.io/api/v1/public/agents/84532/${tokenId}`,
+        { signal: AbortSignal.timeout(5000) }
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const agent = data?.data ?? data;
+      if (!agent?.token_id) return null;
+
+      return {
+        tokenId,
+        owner: agent.owner_address ?? "",
+        agentURI: "",
+        agentWallet: agent.owner_address ?? "",
+        name: agent.name || `Agent #${tokenId}`,
+        description: agent.description || "",
+        image: agent.image_url || "",
+      };
+    } catch {
+      return null;
+    }
   }
 }
 
