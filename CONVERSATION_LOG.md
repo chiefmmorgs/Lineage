@@ -125,8 +125,6 @@ Updated SDK: 7 → 17 methods, 12 → 28 types.
 - Confirmed Lineage maps directly to "Agents that trust" track
 - Pushed code to GitHub: https://github.com/chiefmmorgs/Lineage
 - Created `AGENTS.md` for agentic judges
-- Created `submissionMetadata.json` with openclaw harness + claude-sonnet-4-6
-- Copied Lineage to agent-theatre project
 - Identified 5 relevant tracks (Open Track, ERC-8004, Base, ENS Identity, ENS Open Integration)
 - Prepared full Devfolio submission payload
 
