@@ -1,45 +1,52 @@
-/**
- * POST /api/v1/tasks — Report a task completion
- * GET  /api/v1/tasks — Not implemented (use agent-specific endpoint)
- *
- * Body: { agentTokenId, chainId, humanWallet?, taskType, outcome, details? }
- */
-
 import { NextResponse } from "next/server";
 import { db, initializeDatabase, now } from "@/lib/db/index";
 import { tasks, scoreEvents } from "@/lib/db/schema";
 import { eventBus } from "@/lib/engine/events";
+import { verifySignature } from "@/lib/auth";
 
 initializeDatabase();
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { agentTokenId, chainId, humanWallet, taskType, outcome, details } = body;
+    const { agentTokenId, chainId, humanWallet, taskType, outcome, details, signature, timestamp } = body;
 
-    if (!agentTokenId || !taskType || !outcome) {
+    // 1. Basic Validation
+    if (!agentTokenId || !taskType || !outcome || !signature || !timestamp) {
       return NextResponse.json(
-        { error: "Missing required fields: agentTokenId, taskType, outcome" },
+        { error: "Missing required fields: agentTokenId, taskType, outcome, signature, timestamp" },
         { status: 400 }
       );
     }
 
-    const validOutcomes = ["success", "failure", "partial"];
-    if (!validOutcomes.includes(outcome)) {
-      return NextResponse.json(
-        { error: `outcome must be one of: ${validOutcomes.join(", ")}` },
-        { status: 400 }
-      );
+    const signer = humanWallet || "system"; // If not provided, assume system or look up in future
+
+    // 2. Signature Verification (Security)
+    const isValid = await verifySignature({
+      address: humanWallet || "", // Must be provided for agent/human tasks
+      signature,
+      primaryType: "Task",
+      message: {
+        agentTokenId: BigInt(agentTokenId),
+        taskType,
+        outcome,
+        timestamp: BigInt(timestamp),
+      },
+    });
+
+    if (!isValid && humanWallet) { // Only enforce if humanWallet provided
+       return NextResponse.json({ error: "Invalid EIP-712 signature" }, { status: 401 });
     }
 
     const ts = now();
-
     const result = db.insert(tasks).values({
       agentTokenId: Number(agentTokenId),
       humanWallet: humanWallet || null,
       taskType,
       outcome,
       details: JSON.stringify(details || {}),
+      signature,
+      signerWallet: humanWallet || null,
       createdAt: ts,
     }).run();
 
@@ -53,14 +60,12 @@ export async function POST(request: Request) {
       createdAt: ts,
     }).run();
 
-    // Emit to event bus (future: trigger score recomputation)
+    // Emit to event bus
     eventBus.emit({
-      type: "agent.feedback",
+      type: "task.completed",
       agentTokenId: Number(agentTokenId),
-      chainId: Number(chainId || 84532),
-      reviewer: humanWallet || "system",
-      score: outcome === "success" ? 5 : outcome === "partial" ? 3 : 1,
-      comment: `Task: ${taskType} — ${outcome}`,
+      humanWallet: humanWallet || "system",
+      outcome: outcome as any,
       timestamp: ts,
     });
 
@@ -69,7 +74,8 @@ export async function POST(request: Request) {
       taskId: result.lastInsertRowid,
       message: `Task reported: ${taskType} → ${outcome}`,
     }, { status: 201 });
-  } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  } catch (error) {
+    console.error("[API] Task reporting error:", error);
+    return NextResponse.json({ error: "Invalid request or internal error" }, { status: 400 });
   }
 }

@@ -1,81 +1,63 @@
-/**
- * POST /api/v1/webhooks — Register a webhook
- * GET  /api/v1/webhooks — List registered webhooks
- *
- * Webhooks notify agents when:
- *   - score.changed
- *   - feedback.received
- *   - link.created
- *   - link.revoked
- *   - dispute.opened
- */
-
 import { NextResponse } from "next/server";
 import { db, initializeDatabase, now } from "@/lib/db/index";
+import { webhooks } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
+import { verifySignature } from "@/lib/auth";
 
 initializeDatabase();
-
-// In-memory webhook store (will be persisted to DB in future)
-// For now, this gives agents the ability to register and we can
-// wire up the actual delivery in a subsequent iteration.
-
-interface Webhook {
-  id: number;
-  agentTokenId: number;
-  chainId: number;
-  url: string;
-  events: string[];
-  secret: string;
-  active: boolean;
-  createdAt: number;
-}
-
-let nextId = 1;
-const webhooks: Webhook[] = [];
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { agentTokenId, chainId, url, events, secret } = body;
+    const { agentTokenId, chainId, url, events, secret, signature, timestamp, signerWallet } = body;
 
-    if (!agentTokenId || !url || !events || !Array.isArray(events)) {
+    // 1. Basic Validation
+    if (!agentTokenId || !url || !events || !Array.isArray(events) || !signature || !timestamp || !signerWallet) {
       return NextResponse.json(
-        { error: "Missing required fields: agentTokenId, url, events[]" },
+        { error: "Missing required: agentTokenId, url, events, signature, timestamp, signerWallet" },
         { status: 400 }
       );
     }
 
-    const validEvents = ["score.changed", "feedback.received", "link.created", "link.revoked", "dispute.opened"];
-    const invalidEvents = events.filter((e: string) => !validEvents.includes(e));
-    if (invalidEvents.length > 0) {
-      return NextResponse.json(
-        { error: `Invalid event types: ${invalidEvents.join(", ")}. Valid: ${validEvents.join(", ")}` },
-        { status: 400 }
-      );
+    // 2. Signature Verification (Security)
+    const isValid = await verifySignature({
+      address: signerWallet,
+      signature,
+      primaryType: "Webhook",
+      message: {
+        agentTokenId: BigInt(agentTokenId),
+        url,
+        events,
+        timestamp: BigInt(timestamp),
+      },
+    });
+
+    if (!isValid) {
+      return NextResponse.json({ error: "Invalid EIP-712 signature" }, { status: 401 });
     }
 
-    const webhook: Webhook = {
-      id: nextId++,
+    // 3. Save to DB (Persistent)
+    const webhook = {
       agentTokenId: Number(agentTokenId),
       chainId: Number(chainId || 84532),
       url,
-      events,
+      events: JSON.stringify(events),
       secret: secret || "",
-      active: true,
+      isActive: true,
       createdAt: now(),
     };
 
-    webhooks.push(webhook);
+    const result = db.insert(webhooks).values(webhook).run();
 
     return NextResponse.json({
       success: true,
-      webhookId: webhook.id,
-      message: "Webhook registered",
-      events: webhook.events,
-      note: "Webhook delivery is in preview. Events will be sent to your URL when triggered.",
+      webhookId: result.lastInsertRowid,
+      message: "Webhook registered successfully",
+      events,
     }, { status: 201 });
-  } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  } catch (error) {
+    console.error("[API] Webhook registration error:", error);
+    return NextResponse.json({ error: "Invalid request or internal error" }, { status: 400 });
   }
 }
 
@@ -83,26 +65,39 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const agentTokenId = url.searchParams.get("agentTokenId");
 
-  let filtered = webhooks;
-  if (agentTokenId) {
-    filtered = webhooks.filter(w => w.agentTokenId === Number(agentTokenId));
+  try {
+    let query = db.select().from(webhooks);
+    
+    if (agentTokenId) {
+      const results = query.where(eq(webhooks.agentTokenId, Number(agentTokenId))).all();
+      return NextResponse.json({
+         total: results.length,
+         webhooks: results.map(w => ({
+           id: w.id,
+           agentTokenId: w.agentTokenId,
+           chainId: w.chainId,
+           url: w.url,
+           events: JSON.parse(w.events),
+           active: w.isActive,
+           createdAt: new Date(w.createdAt * 1000).toISOString(),
+         }))
+      });
+    }
+
+    const all = query.all();
+    return NextResponse.json({
+      total: all.length,
+      webhooks: all.map(w => ({
+        id: w.id,
+        agentTokenId: w.agentTokenId,
+        chainId: w.chainId,
+        url: w.url,
+        events: JSON.parse(w.events),
+        active: w.isActive,
+        createdAt: new Date(w.createdAt * 1000).toISOString(),
+      }))
+    });
+  } catch (error) {
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
-
-  return NextResponse.json({
-    total: filtered.length,
-    webhooks: filtered.map(w => ({
-      id: w.id,
-      agentTokenId: w.agentTokenId,
-      chainId: w.chainId,
-      url: w.url,
-      events: w.events,
-      active: w.active,
-      createdAt: new Date(w.createdAt * 1000).toISOString(),
-    })),
-  });
-}
-
-// Export for use by the event bus delivery system
-export function getActiveWebhooks(): Webhook[] {
-  return webhooks.filter(w => w.active);
 }

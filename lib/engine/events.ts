@@ -103,6 +103,14 @@ export interface DisputeEvent {
   timestamp: number;
 }
 
+export interface AgentRecomputeEvent {
+  type: "agent.recompute";
+  agentTokenId: number;
+  chainId: number;
+  reason: string; // on_demand | refresh | feedback | link
+  timestamp: number;
+}
+
 // ── Union type ────────────────────────────────────────────────────
 
 export type LineageEvent =
@@ -115,7 +123,8 @@ export type LineageEvent =
   | ProofVerifiedEvent
   | ScoreRecomputedEvent
   | TaskCompletedEvent
-  | DisputeEvent;
+  | DisputeEvent
+  | AgentRecomputeEvent;
 
 // Extract event type strings
 export type LineageEventType = LineageEvent["type"];
@@ -133,6 +142,7 @@ type EventMap = {
   "task.completed": TaskCompletedEvent;
   "dispute.opened": DisputeEvent;
   "dispute.resolved": DisputeEvent;
+  "agent.recompute": AgentRecomputeEvent;
 };
 
 // ── Singleton Event Bus ───────────────────────────────────────────

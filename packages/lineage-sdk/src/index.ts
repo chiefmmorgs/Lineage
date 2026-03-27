@@ -1,14 +1,12 @@
+import { privateKeyToAccount } from "viem/accounts";
+import type { LocalAccount, Address } from "viem";
+
 /**
  * ============================================================
  *  Lineage SDK — Client
  * ============================================================
  *
  *  TypeScript SDK for the Lineage Trust Engine API.
- *
- *  Usage:
- *    import { Lineage } from "@lineage/sdk";
- *    const lineage = new Lineage({ apiUrl: "https://lineage.app" });
- *    const score = await lineage.getScore("1:84532");
  * ============================================================
  */
 
@@ -36,21 +34,101 @@ import type {
   LineageError,
 } from "./types";
 
+const LINEAGE_DOMAIN = {
+  name: "Lineage Trust Engine",
+  version: "1",
+  chainId: 84532,
+  verifyingContract: "0x0000000000000000000000000000000000000000" as Address,
+} as const;
+
+const LINEAGE_TYPES = {
+  Feedback: [
+    { name: "agentTokenId", type: "uint256" },
+    { name: "score", type: "uint8" },
+    { name: "comment", type: "string" },
+    { name: "timestamp", type: "uint256" },
+  ],
+  Task: [
+    { name: "agentTokenId", type: "uint256" },
+    { name: "taskType", type: "string" },
+    { name: "outcome", type: "string" },
+    { name: "timestamp", type: "uint256" },
+  ],
+  Webhook: [
+    { name: "agentTokenId", type: "uint256" },
+    { name: "url", type: "string" },
+    { name: "events", type: "string[]" },
+    { name: "timestamp", type: "uint256" },
+  ],
+} as const;
+
 export class Lineage {
   private baseUrl: string;
   private timeout: number;
   private apiKey?: string;
+  private signer?: LocalAccount;
 
   constructor(config: LineageConfig = {}) {
     this.baseUrl = (config.apiUrl || "http://localhost:3000").replace(/\/$/, "");
     this.timeout = config.timeout || 10000;
     this.apiKey = config.apiKey;
+
+    if (config.signer) {
+      if (typeof config.signer === "string") {
+        this.signer = privateKeyToAccount(config.signer);
+      } else {
+        this.signer = config.signer;
+      }
+    }
   }
 
   // ── Internal fetch wrapper ──────────────────────────────────────
 
-  private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  private async request<T>(path: string, options: RequestInit = {}, signingType?: keyof typeof LINEAGE_TYPES): Promise<T> {
     const url = `${this.baseUrl}/api/v1${path}`;
+    
+    let bodyData: any = options.body ? JSON.parse(options.body as string) : {};
+
+    // Auto-sign if signer and signingType provided
+    if (this.signer && signingType) {
+      const timestamp = Math.floor(Date.now() / 1000);
+      bodyData.timestamp = timestamp;
+
+      let message: any = {};
+      if (signingType === "Feedback") {
+        message = {
+          agentTokenId: BigInt(bodyData.agentTokenId),
+          score: bodyData.score,
+          comment: bodyData.comment || "",
+          timestamp: BigInt(timestamp),
+        };
+      } else if (signingType === "Task") {
+        message = {
+          agentTokenId: BigInt(bodyData.agentTokenId),
+          taskType: bodyData.taskType,
+          outcome: bodyData.outcome,
+          timestamp: BigInt(timestamp),
+        };
+      } else if (signingType === "Webhook") {
+        message = {
+          agentTokenId: BigInt(bodyData.agentTokenId),
+          url: bodyData.url,
+          events: bodyData.events,
+          timestamp: BigInt(timestamp),
+        };
+        bodyData.signerWallet = this.signer.address;
+      }
+
+      const signature = await this.signer.signTypedData({
+        domain: LINEAGE_DOMAIN,
+        types: LINEAGE_TYPES,
+        primaryType: signingType,
+        message,
+      });
+
+      bodyData.signature = signature;
+    }
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
@@ -60,6 +138,7 @@ export class Lineage {
     const res = await fetch(url, {
       ...options,
       headers,
+      body: (options.method === "POST" || options.method === "PUT") ? JSON.stringify(bodyData) : undefined,
       signal: AbortSignal.timeout(this.timeout),
     });
 
@@ -129,7 +208,7 @@ export class Lineage {
     return this.request<TaskResponse>("/tasks", {
       method: "POST",
       body: JSON.stringify(task),
-    });
+    }, "Task");
   }
 
   /** Get task history for an agent. */
@@ -165,7 +244,7 @@ export class Lineage {
     return this.request<FeedbackResponse>("/feedback", {
       method: "POST",
       body: JSON.stringify(feedback),
-    });
+    }, "Feedback");
   }
 
   // ── Trust Check ─────────────────────────────────────────────────
@@ -189,7 +268,7 @@ export class Lineage {
     return this.request<WebhookResponse>("/webhooks", {
       method: "POST",
       body: JSON.stringify(webhook),
-    });
+    }, "Webhook");
   }
 
   /** List registered webhooks. */

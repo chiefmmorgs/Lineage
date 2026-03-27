@@ -30,7 +30,7 @@ export async function GET(
   const parts = id.split(":");
   const isAgent = parts.length === 2 && !isNaN(Number(parts[0])) && !isNaN(Number(parts[1]));
 
-  // Try to get existing snapshot
+  // Try to get latest snapshot
   let snapshot = db.select().from(scoreSnapshots)
     .where(and(
       eq(scoreSnapshots.entityType, isAgent ? "agent" : "human"),
@@ -40,20 +40,33 @@ export async function GET(
     .limit(1)
     .get();
 
-  // If no snapshot and it's an agent, compute on-demand
-  if (!snapshot && isAgent) {
+  // Background/On-demand logic
+  if (isAgent) {
     const tokenId = parseInt(parts[0], 10);
     const chainId = parseInt(parts[1], 10);
-    await recomputeAgentScore(tokenId, chainId, "on_demand");
+    const ts = now();
 
-    snapshot = db.select().from(scoreSnapshots)
-      .where(and(
-        eq(scoreSnapshots.entityType, "agent"),
-        eq(scoreSnapshots.entityId, id),
-      ))
-      .orderBy(desc(scoreSnapshots.createdAt))
-      .limit(1)
-      .get();
+    // If no snapshot or older than 10 minutes, trigger recompute
+    if (!snapshot || (ts - snapshot.createdAt) > 600) {
+      const { eventBus } = await import("@/lib/engine/events");
+      eventBus.emit({
+        type: "agent.recompute",
+        agentTokenId: tokenId,
+        chainId,
+        reason: snapshot ? "refresh" : "on_demand",
+        timestamp: ts,
+      } as any);
+      
+      console.log(`[API] Triggered background recompute for ${id}`);
+    }
+  }
+
+  if (!snapshot) {
+    return NextResponse.json({ 
+      error: "Score computation initiated. Please try again in a few seconds.", 
+      entityId: id,
+      status: "pending" 
+    }, { status: 202 }); // 202 Accepted
   }
 
   if (!snapshot) {

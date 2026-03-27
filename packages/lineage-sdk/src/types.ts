@@ -1,3 +1,5 @@
+import type { LocalAccount } from "viem";
+
 /**
  * ============================================================
  *  Lineage SDK — Type Definitions
@@ -125,6 +127,10 @@ export interface FeedbackSubmission {
   score: 1 | 2 | 3 | 4 | 5;
   comment?: string;
   category?: "general" | "reliability" | "accuracy" | "speed";
+  /** EIP-712 signature (auto-signed if signer provided) */
+  signature?: string;
+  /** Unix timestamp in seconds */
+  timestamp?: number;
 }
 
 export interface FeedbackResponse {
@@ -189,6 +195,10 @@ export interface TaskSubmission {
   taskType: string;
   outcome: "success" | "failure" | "partial";
   details?: Record<string, unknown>;
+  /** EIP-712 signature (auto-signed if signer provided) */
+  signature?: string;
+  /** Unix timestamp in seconds */
+  timestamp?: number;
 }
 
 export interface TaskResponse {
@@ -225,6 +235,10 @@ export interface DisputeSubmission {
   agentTokenId?: number;
   initiator: string;
   reason: string;
+  /** EIP-712 signature (auto-signed if signer provided) */
+  signature?: string;
+  /** Unix timestamp in seconds */
+  timestamp?: number;
 }
 
 export interface DisputeResponse {
@@ -286,6 +300,12 @@ export interface WebhookRegistration {
   url: string;
   events: WebhookEvent[];
   secret?: string;
+  /** EIP-712 signature (auto-signed if signer provided) */
+  signature?: string;
+  /** Unix timestamp in seconds */
+  timestamp?: number;
+  /** Wallet that signs the registration */
+  signerWallet?: string;
 }
 
 export interface WebhookResponse {
@@ -315,8 +335,10 @@ export interface LineageConfig {
   apiUrl?: string;
   /** Request timeout in milliseconds (default: 10000) */
   timeout?: number;
-  /** Optional API key for authentication */
+  /** Optional API key for identification */
   apiKey?: string;
+  /** Optional private key or Viem account for EIP-712 signing of agent operations */
+  signer?: `0x${string}` | LocalAccount;
 }
 
 // ── Error ─────────────────────────────────────────────────────────

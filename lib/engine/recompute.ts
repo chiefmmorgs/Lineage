@@ -392,6 +392,22 @@ function handleProofVerified(event: { agentTokenId: number }) {
 
 // ── Wire event bus ────────────────────────────────────────────────
 
+const recomputeCooldown = new Map<string, number>();
+
+async function handleAgentRecompute(event: { agentTokenId: number; chainId: number; reason: string }) {
+  const key = `${event.agentTokenId}:${event.chainId}`;
+  const nowTs = Date.now();
+  const lastTime = recomputeCooldown.get(key) || 0;
+
+  // 10 second cooldown for background recomputes
+  if (nowTs - lastTime < 10000) return;
+
+  recomputeCooldown.set(key, nowTs);
+  await recomputeAgentScore(event.agentTokenId, event.chainId, event.reason);
+}
+
+// ── Wire event bus ────────────────────────────────────────────────
+
 export function startRecomputeEngine() {
   eventBus.on("agent.feedback", handleAgentFeedback);
   eventBus.on("agent.registered", handleAgentRegistered);
@@ -399,7 +415,8 @@ export function startRecomputeEngine() {
   eventBus.on("link.revoked", handleLinkRevoked);
   eventBus.on("ethos.updated", handleEthosUpdated);
   eventBus.on("proof.verified", handleProofVerified);
-  console.log("[RECOMPUTE] Engine started — external data fetched on-demand");
+  eventBus.on("agent.recompute", handleAgentRecompute);
+  console.log("[RECOMPUTE] Engine started — background recompute enabled");
 }
 
 export function stopRecomputeEngine() {
@@ -409,5 +426,6 @@ export function stopRecomputeEngine() {
   eventBus.off("link.revoked", handleLinkRevoked);
   eventBus.off("ethos.updated", handleEthosUpdated);
   eventBus.off("proof.verified", handleProofVerified);
+  eventBus.off("agent.recompute", handleAgentRecompute);
   console.log("[RECOMPUTE] Engine stopped");
 }

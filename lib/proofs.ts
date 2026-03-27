@@ -1,23 +1,8 @@
-/**
- * ============================================================
- *  Lineage — Identity Proof System
- * ============================================================
- *
- *  Proof hierarchy:
- *    1. Direct ETHOS proof  → "Verified via ETHOS"
- *    2. ENS proof           → "Verified via ENS: name.eth"
- *    3. Unverified          → "Unverified claimed owner"
- *
- *  ENS proof: The platform resolves the ENS name and checks
- *  that the signing wallet matches the wallet tied to the name.
- *  ENS proves control of the named wallet, not legal identity.
- * ============================================================
- */
-
 import { createPublicClient, http, verifyMessage, type Address } from "viem";
 import { mainnet } from "viem/chains";
-import { promises as fs } from "fs";
-import path from "path";
+import { db, now } from "./db/index";
+import { proofs } from "./db/schema";
+import { eq, and } from "drizzle-orm";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -78,25 +63,6 @@ export const ROLE_CONFIG: Record<AgentRole, { label: string; color: string; desc
     description: "The wallet that holds the ERC-8004 token",
   },
 };
-
-// ── Storage (file-based, can migrate to on-chain) ────────────────
-
-const DATA_DIR = path.join(process.cwd(), "data");
-const PROOFS_FILE = path.join(DATA_DIR, "proofs.json");
-
-async function readProofsFile(): Promise<ProofRecord[]> {
-  try {
-    const data = await fs.readFile(PROOFS_FILE, "utf-8");
-    return JSON.parse(data);
-  } catch {
-    return [];
-  }
-}
-
-async function writeProofsFile(proofs: ProofRecord[]): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(PROOFS_FILE, JSON.stringify(proofs, null, 2));
-}
 
 // ── ENS Verification ─────────────────────────────────────────────
 
@@ -177,26 +143,46 @@ export async function verifyEnsProof(params: {
 // ── Proof CRUD ───────────────────────────────────────────────────
 
 /**
- * Store a verified proof.
+ * Store a verified proof in the database.
  */
 export async function storeProof(proof: ProofRecord): Promise<void> {
-  const proofs = await readProofsFile();
-
   // Remove existing proof of the same type for this agent
-  const filtered = proofs.filter(
-    (p) => !(p.agentTokenId === proof.agentTokenId && p.proofType === proof.proofType)
-  );
+  db.delete(proofs)
+    .where(and(
+      eq(proofs.agentTokenId, proof.agentTokenId),
+      eq(proofs.proofType, proof.proofType)
+    ))
+    .run();
 
-  filtered.push(proof);
-  await writeProofsFile(filtered);
+  db.insert(proofs).values({
+    agentTokenId: proof.agentTokenId,
+    proofType: proof.proofType,
+    value: proof.value,
+    wallet: proof.wallet,
+    signature: proof.signature,
+    verified: proof.verified,
+    createdAt: now(),
+  }).run();
 }
 
 /**
- * Get all proofs for a specific agent.
+ * Get all proofs for a specific agent from the database.
  */
 export async function getProofsForAgent(agentTokenId: number): Promise<ProofRecord[]> {
-  const proofs = await readProofsFile();
-  return proofs.filter((p) => p.agentTokenId === agentTokenId);
+  const result = db.select().from(proofs)
+    .where(eq(proofs.agentTokenId, agentTokenId))
+    .all();
+
+  return result.map(p => ({
+    agentTokenId: p.agentTokenId,
+    proofType: p.proofType as ProofType,
+    value: p.value,
+    wallet: p.wallet,
+    signature: p.signature || "",
+    role: "creator", // Default or look up if needed
+    timestamp: p.createdAt,
+    verified: p.verified,
+  }));
 }
 
 /**
@@ -222,7 +208,7 @@ export async function resolveIdentity(
       wallet: "",
       signature: "",
       role: "creator",
-      timestamp: Date.now(),
+      timestamp: now(),
       verified: true,
     };
   }

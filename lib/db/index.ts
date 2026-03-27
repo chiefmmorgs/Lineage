@@ -93,6 +93,8 @@ export function initializeDatabase() {
       score INTEGER NOT NULL,
       comment TEXT NOT NULL DEFAULT '',
       category TEXT DEFAULT 'general',
+      signature TEXT,
+      signer_wallet TEXT,
       is_valid INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL
     );
@@ -115,6 +117,8 @@ export function initializeDatabase() {
       task_type TEXT NOT NULL,
       outcome TEXT NOT NULL,
       details TEXT NOT NULL DEFAULT '{}',
+      signature TEXT,
+      signer_wallet TEXT,
       created_at INTEGER NOT NULL
     );
 
@@ -140,6 +144,17 @@ export function initializeDatabase() {
       error_message TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS webhooks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_token_id INTEGER NOT NULL,
+      chain_id INTEGER NOT NULL DEFAULT 84532,
+      url TEXT NOT NULL,
+      events TEXT NOT NULL,
+      secret TEXT NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL
+    );
+
     -- Performance indexes
     CREATE INDEX IF NOT EXISTS idx_links_agent ON links(agent_token_id);
     CREATE INDEX IF NOT EXISTS idx_links_human ON links(human_wallet);
@@ -149,7 +164,18 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_proofs_agent ON proofs(agent_token_id);
   `);
 
-  console.log("✅ Lineage database initialized at", DB_PATH);
+  // Ensure security columns exist in feedback table (Migration)
+  try { sqlite.exec("ALTER TABLE feedback ADD COLUMN signature TEXT;"); } catch {}
+  try { sqlite.exec("ALTER TABLE feedback ADD COLUMN signer_wallet TEXT;"); } catch {}
+  
+  // Ensure security columns exist in tasks table (Migration)
+  try { sqlite.exec("ALTER TABLE tasks ADD COLUMN signature TEXT;"); } catch {}
+  try { sqlite.exec("ALTER TABLE tasks ADD COLUMN signer_wallet TEXT;"); } catch {}
+
+  // Ensure security columns exist in proofs table (Migration)
+  try { sqlite.exec("ALTER TABLE proofs ADD COLUMN signature TEXT;"); } catch {}
+
+  console.log("✅ Lineage database initialized and migrated at", DB_PATH);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────

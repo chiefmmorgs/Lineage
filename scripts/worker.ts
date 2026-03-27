@@ -42,6 +42,8 @@ console.log(`   📊 Current: ${stats.links} links, ${stats.scoreSnapshots} snap
 
 // ── Start engines ─────────────────────────────────────────────────
 
+import { startWebhookEngine } from "../lib/engine/webhooks";
+
 console.log("2. Starting recomputation engine...");
 startRecomputeEngine();
 
@@ -49,6 +51,9 @@ console.log("\n3. Starting indexers...");
 startERC8004Indexer();
 startLinkIndexer();
 startEthosPoller();
+
+console.log("\n4. Starting webhook delivery engine...");
+startWebhookEngine();
 
 console.log("\n✅ Worker running. Press Ctrl+C to stop.\n");
 

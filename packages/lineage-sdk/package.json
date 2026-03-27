@@ -32,6 +32,9 @@
   ],
   "author": "Lineage",
   "license": "MIT",
+  "dependencies": {
+    "viem": "^2.47.1"
+  },
   "devDependencies": {
     "typescript": "^5.0.0"
   }

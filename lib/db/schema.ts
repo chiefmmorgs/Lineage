@@ -82,6 +82,8 @@ export const feedback = sqliteTable("feedback", {
   score: integer("score").notNull(), // 1–5
   comment: text("comment").notNull().default(""),
   category: text("category").default("general"), // general | reliability | accuracy | speed
+  signature: text("signature"), // EIP-712 signature
+  signerWallet: text("signer_wallet"),
   isValid: integer("is_valid", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at").notNull(),
 });
@@ -108,6 +110,8 @@ export const tasks = sqliteTable("tasks", {
   taskType: text("task_type").notNull(),
   outcome: text("outcome").notNull(), // success | failure | partial
   details: text("details").notNull().default("{}"),
+  signature: text("signature"), // EIP-712 signature
+  signerWallet: text("signer_wallet"),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -135,4 +139,16 @@ export const externalSync = sqliteTable("external_sync", {
   lastSyncedAt: integer("last_synced_at").notNull(),
   status: text("status").notNull().default("idle"),
   errorMessage: text("error_message"),
+});
+
+// ── Webhooks (Persistent event delivery) ──────────────────────────
+export const webhooks = sqliteTable("webhooks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  agentTokenId: integer("agent_token_id").notNull(),
+  chainId: integer("chain_id").notNull().default(84532),
+  url: text("url").notNull(),
+  events: text("events").notNull(), // JSON string array
+  secret: text("secret").notNull(),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at").notNull(),
 });
